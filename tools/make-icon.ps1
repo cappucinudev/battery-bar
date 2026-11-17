@@ -1,28 +1,26 @@
-# Draws the app icon (white battery on black) and writes src\icon.ico with PNG frames.
+# Builds src\icon.ico (PNG frames, 16-256 px, rounded corners) from src\icon-source.png.
 Add-Type -AssemblyName System.Drawing
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$sizes = 16, 24, 32, 48, 64, 256
+$src = [Drawing.Image]::FromFile("$root\src\icon-source.png")
+$side = [Math]::Min($src.Width, $src.Height)
+$crop = New-Object Drawing.Rectangle ([int](($src.Width - $side) / 2)), ([int](($src.Height - $side) / 2)), $side, $side
+$sizes = 16, 24, 32, 48, 64, 128, 256
 $frames = foreach ($s in $sizes) {
     $bmp = New-Object Drawing.Bitmap $s, $s
     $g = [Drawing.Graphics]::FromImage($bmp)
-    $g.SmoothingMode = 'AntiAlias'
+    $g.SmoothingMode = 'AntiAlias'; $g.InterpolationMode = 'HighQualityBicubic'; $g.PixelOffsetMode = 'HighQuality'
     $g.Clear([Drawing.Color]::Transparent)
-    $k = $s / 32.0
-    $bg = New-Object Drawing.Drawing2D.GraphicsPath
-    $r = 7 * $k; $w = $s - 1
-    $bg.AddArc(0, 0, $r, $r, 180, 90); $bg.AddArc($w - $r, 0, $r, $r, 270, 90)
-    $bg.AddArc($w - $r, $w - $r, $r, $r, 0, 90); $bg.AddArc(0, $w - $r, $r, $r, 90, 90); $bg.CloseFigure()
-    $g.FillPath([Drawing.Brushes]::Black, $bg)
-    $pen = New-Object Drawing.Pen ([Drawing.Color]::White), ([Math]::Max(1, 2 * $k))
-    $g.DrawRectangle($pen, [float](5 * $k), [float](10 * $k), [float](19 * $k), [float](12 * $k))
-    $g.FillRectangle([Drawing.Brushes]::White, [float](25 * $k), [float](13.5 * $k), [float](2.5 * $k), [float](5 * $k))
-    $g.FillRectangle([Drawing.Brushes]::White, [float](8 * $k), [float](13 * $k), [float](10 * $k), [float](6 * $k))
+    $r = [Math]::Max(2, $s * 0.18); $w = $s; $path = New-Object Drawing.Drawing2D.GraphicsPath
+    $path.AddArc(0, 0, $r * 2, $r * 2, 180, 90); $path.AddArc($w - $r * 2, 0, $r * 2, $r * 2, 270, 90)
+    $path.AddArc($w - $r * 2, $w - $r * 2, $r * 2, $r * 2, 0, 90); $path.AddArc(0, $w - $r * 2, $r * 2, $r * 2, 90, 90); $path.CloseFigure()
+    $g.SetClip($path)
+    $g.DrawImage($src, (New-Object Drawing.Rectangle 0, 0, $s, $s), $crop, [Drawing.GraphicsUnit]::Pixel)
     $g.Dispose()
     $ms = New-Object IO.MemoryStream
-    $bmp.Save($ms, [Drawing.Imaging.ImageFormat]::Png)
-    $bmp.Dispose()
+    $bmp.Save($ms, [Drawing.Imaging.ImageFormat]::Png); $bmp.Dispose()
     , $ms.ToArray()
 }
+$src.Dispose()
 $out = New-Object IO.MemoryStream
 $bw = New-Object IO.BinaryWriter $out
 $bw.Write([uint16]0); $bw.Write([uint16]1); $bw.Write([uint16]$sizes.Count)

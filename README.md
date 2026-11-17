@@ -8,7 +8,7 @@ Shows the battery level of your wireless headphones, mouse and keyboard right on
 
 **[Download BatteryBar.exe](https://github.com/cappucinudev/battery-bar/releases/latest/download/BatteryBar.exe)** · [Install page](https://cappucinudev.github.io/battery-bar/)
 
-- Tiny: one 60 KB exe, no admin rights, no internet, no background services.
+- Tiny: one small (~240 KB) exe, no admin rights, no internet, no background services.
 - Finds devices on its own. Nothing to set up.
 - Hides with the taskbar (full-screen games stay clean). Follows light/dark mode and display scaling.
 - Click the numbers for a Windows 11 style panel: every device with a battery bar and charging state, show/hide each one, click its icon to change it, and a settings page (check interval, text size, position, start with Windows).
