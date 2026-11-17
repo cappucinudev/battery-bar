@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Battery Bar</title>
+<meta name="description" content="Wireless headphones, mouse and keyboard battery on your Windows taskbar.">
+<style>
+  :root { --bg: #fff; --fg: #111; --muted: #666; --line: #ddd; --card: #f6f6f6; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #0e0e0e; --fg: #f2f2f2; --muted: #9a9a9a; --line: #2a2a2a; --card: #171717; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.55 "Segoe UI", system-ui, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 56px 16px 72px; }
+  h1 { font-size: 44px; margin: 0 0 8px; letter-spacing: -0.02em; }
+  h2 { font-size: 20px; margin: 44px 0 12px; }
+  p.lead { font-size: 19px; color: var(--muted); margin: 0 0 28px; }
+  .shot { width: 100%; border-radius: 10px; border: 1px solid var(--line); background: #101018; display: block; }
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 28px 0 8px; }
+  .btn { display: inline-block; padding: 14px 24px; border-radius: 8px; background: var(--fg); color: var(--bg); text-decoration: none; font-weight: 600; }
+  .btn.ghost { background: transparent; color: var(--fg); border: 1px solid var(--line); }
+  .small { color: var(--muted); font-size: 14px; }
+  ol, ul { padding-left: 22px; }
+  li { margin: 6px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; }
+  td, th { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  code, kbd { background: var(--card); border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; font-size: 14px; }
+  footer { margin-top: 56px; color: var(--muted); font-size: 14px; }
+  a { color: inherit; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Battery Bar</h1>
+  <p class="lead">Your wireless headphones, mouse and keyboard battery, right on the Windows taskbar.</p>
+  <img class="shot" src="taskbar.png" alt="Taskbar showing headphones 30%, mouse 93%, keyboard 64% charging">
+
+  <div class="actions">
+    <a class="btn" id="dl" href="https://github.com/cappucinudev/battery-bar/releases/latest/download/BatteryBar.exe">Download for Windows</a>
+    <a class="btn ghost" href="https://github.com/cappucinudev/battery-bar">Source code</a>
+  </div>
+  <p class="small">Windows 10 and 11 · 60 KB · no admin rights · no internet · free and open source</p>
+
+  <h2>Install</h2>
+  <ol>
+    <li>Download <code>BatteryBar.exe</code> and run it.</li>
+    <li>If Windows says <b>"Windows protected your PC"</b>, click <b>More info</b> then <b>Run anyway</b>. (The exe is not code-signed; the source is public.)</li>
+    <li>Click <b>Yes</b> to install. It starts with Windows and gets a Start menu entry.</li>
+    <li>Turn your devices on. Their battery shows up left of the tray icons within a minute.</li>
+  </ol>
+  <p class="small">Click the numbers for settings (hide a device, change its icon, text size, position). Right-click for Refresh and Exit.</p>
+
+  <h2>Works with</h2>
+  <table>
+    <tr><th>Devices</th><th>Notes</th></tr>
+    <tr><td>Logitech mice, keyboards, headsets</td><td>Through G HUB if it is running, otherwise directly (Lightspeed, Unifying, Bolt, USB, Bluetooth)</td></tr>
+    <tr><td>Razer mice and keyboards</td><td>Directly, Synapse not needed</td></tr>
+    <tr><td>Razer HyperSpeed headsets</td><td>BlackShark V2 Pro and similar</td></tr>
+    <tr><td>Any Bluetooth headphones, earbuds, mice, keyboards, controllers</td><td>Anything Windows shows a battery for in Bluetooth &amp; devices</td></tr>
+  </table>
+  <p class="small">Missing yours? Open settings, click <b>Copy diagnostics</b> and paste it into a <a href="https://github.com/cappucinudev/battery-bar/issues">GitHub issue</a>.</p>
+
+  <h2>Uninstall</h2>
+  <p>Open settings and click <b>Uninstall</b>. Everything is removed.</p>
+
+  <footer>MIT licensed · <a href="https://github.com/cappucinudev/battery-bar/releases">All releases</a></footer>
+</main>
+</body>
+</html>
