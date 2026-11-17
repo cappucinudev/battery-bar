@@ -11,7 +11,7 @@ namespace BatteryBar
 {
     static class Program
     {
-        public const string Version = "1.0.0";
+        public const string Version = "1.1.0";
         public const string Repo = "https://github.com/cappucinudev/battery-bar";
         const string MutexName = "BatteryBar.Single";
         public const string ShowEvent = "BatteryBar.ShowSettings";
@@ -204,7 +204,8 @@ namespace BatteryBar
         readonly AutoResetEvent wake = new AutoResetEvent(false);
         readonly ContextMenuStrip menu = new ContextMenuStrip();
         Bar bar;
-        SettingsForm form;
+        Flyout form;
+        public DateTime LastPoll = DateTime.MinValue;
         bool polledOnce;
 
         public AppContext(bool welcome)
@@ -212,7 +213,7 @@ namespace BatteryBar
             ui.CreateControl();
             IntPtr force = ui.Handle;
 
-            menu.Items.Add("Settings", null, delegate { ShowSettings(); });
+            menu.Items.Add("Open", null, delegate { ShowSettings(); });
             menu.Items.Add("Refresh now", null, delegate { Refresh(); });
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Exit", null, delegate { ExitThread(); });
@@ -231,6 +232,7 @@ namespace BatteryBar
             events.Start();
 
             if (welcome) ShowSettings();
+            if (Environment.GetCommandLineArgs().Contains("--demo-settings")) { form = new Flyout(this); form.Open(true); }
         }
 
         public void Refresh() { wake.Set(); }
@@ -269,6 +271,7 @@ namespace BatteryBar
         void Apply(List<Reading> list)
         {
             polledOnce = true;
+            LastPoll = DateTime.Now;
             bool newName = false;
             foreach (var r in list)
             {
@@ -280,7 +283,7 @@ namespace BatteryBar
             if (newName && !Poller.Demo) Settings.Save();
             try { Redraw(); }
             catch (Exception e) { try { File.AppendAllText(Path.Combine(Settings.Dir, "last-check.txt"), "redraw failed: " + e + "\r\n"); } catch { } }
-            if (form != null && !form.IsDisposed) form.Fill();
+            if (form != null && !form.IsDisposed) form.Refill();
         }
 
         public string KindOf(Reading r)
@@ -322,7 +325,7 @@ namespace BatteryBar
                 try
                 {
                     bar = new Bar(tb, Settings);
-                    bar.LeftClick += delegate { ShowSettings(); };
+                    bar.LeftClick += delegate { ToggleFlyout(); };
                     bar.RightClick += delegate { Native.SetForegroundWindow(ui.Handle); menu.Show(Cursor.Position); };
                     Redraw();
                 }
@@ -333,12 +336,28 @@ namespace BatteryBar
 
         public void ShowSettings()
         {
-            if (form == null || form.IsDisposed) form = new SettingsForm(this);
-            form.Fill();
-            form.Show();
-            if (form.WindowState == FormWindowState.Minimized) form.WindowState = FormWindowState.Normal;
-            form.Activate();
-            Native.SetForegroundWindow(form.Handle);
+            if (form == null || form.IsDisposed) form = new Flyout(this);
+            form.Open(false);
+        }
+
+        // Clicking the strip opens the flyout; clicking it again (which first closes it) does not reopen.
+        void ToggleFlyout()
+        {
+            if (form != null && !form.IsDisposed && (form.Visible || DateTime.UtcNow - form.HiddenAt < TimeSpan.FromMilliseconds(400))) { form.Hide(); return; }
+            ShowSettings();
+        }
+
+        public float Scale()
+        {
+            IntPtr tb = Native.FindWindow("Shell_TrayWnd", null);
+            uint d = tb == IntPtr.Zero ? 96 : Native.GetDpiForWindow(tb);
+            return (d == 0 ? 96 : d) / 96f;
+        }
+
+        public bool BarRect(out Native.RECT r)
+        {
+            r = new Native.RECT();
+            return bar != null && bar.Handle != IntPtr.Zero && Native.GetWindowRect(bar.Handle, out r);
         }
 
         protected override void ExitThreadCore()

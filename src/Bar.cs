@@ -40,7 +40,7 @@ namespace BatteryBar
 
         public void SetItems(List<Reading> list) { items = list; Render(); }
 
-        static bool LightTaskbar()
+        public static bool LightTaskbar()
         {
             try
             {
@@ -53,7 +53,7 @@ namespace BatteryBar
             catch { return false; }
         }
 
-        static string IconFont()
+        public static string IconFont()
         {
             if (iconFont == null)
             {
