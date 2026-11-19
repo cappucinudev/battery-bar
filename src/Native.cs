@@ -62,14 +62,80 @@ namespace BatteryBar
             [MarshalAs(UnmanagedType.ByValArray, SizeConst = 27)] public ushort[] Rest;
         }
 
+        [DllImport("hid.dll", SetLastError = true)] public static extern bool HidD_GetInputReport(SafeFileHandle h, byte[] buf, int len);
+        [DllImport("hid.dll")] static extern int HidP_GetValueCaps(int rt, IntPtr caps, ref ushort len, IntPtr pd);
+        [DllImport("hid.dll")] static extern int HidP_GetButtonCaps(int rt, IntPtr caps, ref ushort len, IntPtr pd);
+        [DllImport("hid.dll")] static extern int HidP_GetUsageValue(int rt, ushort page, ushort link, ushort usage, out uint value, IntPtr pd, byte[] report, uint reportLen);
+        [DllImport("hid.dll")] static extern int HidP_GetUsages(int rt, ushort page, ushort link, ushort[] usages, ref uint usageLen, IntPtr pd, byte[] report, uint reportLen);
+
+        // One value or button usage of a HID collection (input or feature reports only).
+        public class HidCap
+        {
+            public ushort Page, Usage, Link;
+            public byte ReportId;
+            public char Type; // 'i' input, 'f' feature
+            public bool Button;
+            public int Min, Max;
+        }
+
         public class HidDev
         {
-            public string Path, Product;
+            public string Path;
             public ushort Vid, Pid, UsagePage, Usage, InLen, OutLen, FeatLen;
+            public List<HidCap> Caps = new List<HidCap>();
+            string product;
+            bool productDone;
+            public string Id { get { return Vid.ToString("X4") + ":" + Pid.ToString("X4"); } }
+            // Read on demand, and only for USB paths: Bluetooth HID can be slow to answer.
+            public string Product
+            {
+                get
+                {
+                    if (!productDone)
+                    {
+                        productDone = true;
+                        if (Path != null && Path.ToLowerInvariant().Contains("vid_"))
+                            using (var h = Open(Path, 0, false))
+                            {
+                                if (!h.IsInvalid)
+                                {
+                                    var buf = new byte[256];
+                                    if (HidD_GetProductString(h, buf, buf.Length))
+                                    {
+                                        string s = Encoding.Unicode.GetString(buf);
+                                        int z = s.IndexOf((char)0);
+                                        product = (z >= 0 ? s.Substring(0, z) : s).Trim();
+                                    }
+                                }
+                            }
+                    }
+                    return product;
+                }
+                set { product = value; productDone = true; }
+            }
         }
+
+        static List<HidDev> hidCache;
+        // Call at the start of a poll: the HID list is read once per poll, not once per source.
+        public static void ResetHid() { hidCache = null; }
 
         // Every present HID interface whose vendor id passes the filter.
         public static List<HidDev> HidDevices(Func<ushort, bool> vidOk)
+        {
+            if (hidCache == null) hidCache = EnumHid();
+            var list = new List<HidDev>();
+            foreach (var d in hidCache) if (vidOk(d.Vid)) list.Add(d);
+            return list;
+        }
+
+        public static SafeFileHandle OpenAny(string path)
+        {
+            var h = Open(path, ReadWrite, false);
+            if (h.IsInvalid) h = Open(path, 0, false);
+            return h;
+        }
+
+        static List<HidDev> EnumHid()
         {
             var list = new List<HidDev>();
             Guid g;
@@ -89,7 +155,7 @@ namespace BatteryBar
                         if (h.IsInvalid) continue;
                         var a = new HIDD_ATTRIBUTES();
                         a.Size = Marshal.SizeOf(a);
-                        if (!HidD_GetAttributes(h, ref a) || !vidOk(a.VendorID)) continue;
+                        if (!HidD_GetAttributes(h, ref a)) continue;
                         var dev = new HidDev();
                         dev.Path = path; dev.Vid = a.VendorID; dev.Pid = a.ProductID;
                         IntPtr pd;
@@ -97,16 +163,20 @@ namespace BatteryBar
                         {
                             HIDP_CAPS c;
                             HidP_GetCaps(pd, out c);
-                            HidD_FreePreparsedData(pd);
                             dev.UsagePage = c.UsagePage; dev.Usage = c.Usage;
                             dev.InLen = c.InputLen; dev.OutLen = c.OutputLen; dev.FeatLen = c.FeatureLen;
-                        }
-                        var buf = new byte[256];
-                        if (HidD_GetProductString(h, buf, buf.Length))
-                        {
-                            string s = Encoding.Unicode.GetString(buf);
-                            int z = s.IndexOf('\0');
-                            dev.Product = (z >= 0 ? s.Substring(0, z) : s).Trim();
+                            try
+                            {
+                                if (c.Rest != null && c.Rest.Length >= 27)
+                                {
+                                    AddCaps(pd, 0, 'i', c.Rest[19], false, dev.Caps);
+                                    AddCaps(pd, 0, 'i', c.Rest[18], true, dev.Caps);
+                                    AddCaps(pd, 2, 'f', c.Rest[25], false, dev.Caps);
+                                    AddCaps(pd, 2, 'f', c.Rest[24], true, dev.Caps);
+                                }
+                            }
+                            catch { }
+                            HidD_FreePreparsedData(pd);
                         }
                         list.Add(dev);
                     }
@@ -114,6 +184,74 @@ namespace BatteryBar
             }
             finally { SetupDiDestroyDeviceInfoList(set); }
             return list;
+        }
+
+        // HIDP_VALUE_CAPS and HIDP_BUTTON_CAPS are both 72 bytes; the usage (range) sits at offset 56.
+        static void AddCaps(IntPtr pd, int rt, char type, int n, bool button, List<HidCap> list)
+        {
+            if (n <= 0 || n > 256) return;
+            IntPtr buf = Marshal.AllocHGlobal(72 * n);
+            try
+            {
+                ushort count = (ushort)n;
+                int st = button ? HidP_GetButtonCaps(rt, buf, ref count, pd) : HidP_GetValueCaps(rt, buf, ref count, pd);
+                if (st != 0x110000) return;
+                for (int i = 0; i < count; i++)
+                {
+                    var ip = new IntPtr(buf.ToInt64() + 72L * i);
+                    ushort page = (ushort)Marshal.ReadInt16(ip, 0);
+                    byte id = Marshal.ReadByte(ip, 2);
+                    ushort link = (ushort)Marshal.ReadInt16(ip, 6);
+                    bool range = Marshal.ReadByte(ip, 12) != 0;
+                    int min = 0, max = 0;
+                    if (!button) { min = Marshal.ReadInt32(ip, 40); max = Marshal.ReadInt32(ip, 44); }
+                    int u0 = (ushort)Marshal.ReadInt16(ip, 56);
+                    int u1 = range ? (ushort)Marshal.ReadInt16(ip, 58) : u0;
+                    for (int u = u0; u <= u1 && u < u0 + 64; u++)
+                    {
+                        var c = new HidCap();
+                        c.Page = page; c.Usage = (ushort)u; c.Link = link; c.ReportId = id; c.Type = type;
+                        c.Button = button; c.Min = min; c.Max = max;
+                        list.Add(c);
+                    }
+                }
+            }
+            finally { Marshal.FreeHGlobal(buf); }
+        }
+
+        // Read one usage from its feature or input report. Read-only (GET_REPORT).
+        public static bool ReadUsage(HidDev d, HidCap c, out long value)
+        {
+            value = 0;
+            using (var h = OpenAny(d.Path))
+            {
+                if (h.IsInvalid) return false;
+                IntPtr pd;
+                if (!HidD_GetPreparsedData(h, out pd)) return false;
+                try
+                {
+                    int len = c.Type == 'f' ? d.FeatLen : d.InLen;
+                    if (len <= 0) return false;
+                    var buf = new byte[len];
+                    buf[0] = c.ReportId;
+                    bool ok = c.Type == 'f' ? HidD_GetFeature(h, buf, len) : HidD_GetInputReport(h, buf, len);
+                    if (!ok) return false;
+                    int rt = c.Type == 'f' ? 2 : 0;
+                    if (c.Button)
+                    {
+                        var us = new ushort[64];
+                        uint n = 64;
+                        if (HidP_GetUsages(rt, c.Page, c.Link, us, ref n, pd, buf, (uint)len) != 0x110000) return false;
+                        for (int i = 0; i < n && i < 64; i++) if (us[i] == c.Usage) value = 1;
+                        return true;
+                    }
+                    uint v;
+                    if (HidP_GetUsageValue(rt, c.Page, c.Link, c.Usage, out v, pd, buf, (uint)len) != 0x110000) return false;
+                    value = v;
+                    return true;
+                }
+                finally { HidD_FreePreparsedData(pd); }
+            }
         }
 
         // ---- SetupAPI ----

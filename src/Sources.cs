@@ -332,6 +332,18 @@ namespace BatteryBar
     {
         readonly Dictionary<string, byte> tids = new Dictionary<string, byte>();
 
+        // Dongles whose USB product string is generic ("Hid Interface", "USB Receiver").
+        static readonly Dictionary<ushort, string> KnownNames = new Dictionary<ushort, string> {
+            { 0x0528, "Razer BlackShark V2 Pro" }, { 0x0555, "Razer BlackShark V2 Pro" }, { 0x0556, "Razer BlackShark V2 Pro" },
+            { 0x0527, "Razer Kraken Ultimate" }, { 0x0568, "Razer Barracuda" }, { 0x056C, "Razer Barracuda X" }
+        };
+
+        static bool Generic(string product)
+        {
+            string p = product.ToLowerInvariant();
+            return p == "hid interface" || p.Contains("receiver") || p.Contains("dongle") || p == "usb device" || p.StartsWith("hid ");
+        }
+
         public void Poll(List<Reading> outList)
         {
             var byPid = new Dictionary<ushort, List<Native.HidDev>>();
@@ -346,7 +358,7 @@ namespace BatteryBar
                 string name = null, usageKind = null;
                 foreach (var d in kv.Value)
                 {
-                    if (name == null && !string.IsNullOrEmpty(d.Product)) name = d.Product;
+                    if (name == null && !string.IsNullOrEmpty(d.Product) && !Generic(d.Product)) name = d.Product;
                     if (d.UsagePage == 1 && d.Usage == 2) usageKind = "mouse";
                     if (d.UsagePage == 1 && d.Usage == 6 && usageKind == null) usageKind = "keyboard";
                 }
@@ -361,10 +373,12 @@ namespace BatteryBar
                             if (r != null) usageKind = "headset";
                         }
                 if (r == null) continue;
-                r.Name = name ?? ("Razer device " + kv.Key.ToString("X4"));
+                string known;
+                r.Name = name ?? (KnownNames.TryGetValue(kv.Key, out known) ? known : "Razer device " + kv.Key.ToString("X4"));
                 r.Key = "razer:" + kv.Key.ToString("X4");
                 r.Kind = Kinds.Guess(r.Name, usageKind ?? "other");
                 r.Source = "Razer";
+                Poller.Mark(0x1532, kv.Key, "Razer");
                 outList.Add(r);
             }
         }
@@ -476,7 +490,23 @@ namespace BatteryBar
         readonly HidppSource hidpp = new HidppSource();
         readonly RazerSource razer = new RazerSource();
         readonly WindowsSource windows = new WindowsSource();
+        readonly SteelSeriesSource steel = new SteelSeriesSource();
+        readonly HyperXSource hyperx = new HyperXSource();
+        readonly GenericHidSource generic = new GenericHidSource();
         public string Log = "";
+
+        // Which source handled a USB device ("VVVV:PPPP", or "VVVV:*" for a whole vendor). Reset every poll.
+        static readonly Dictionary<string, string> handled = new Dictionary<string, string>();
+        public static readonly StringBuilder Notes = new StringBuilder();
+        public static void Mark(ushort vid, ushort pid, string who) { handled[vid.ToString("X4") + ":" + pid.ToString("X4")] = who; }
+        public static void MarkVendor(ushort vid, string who) { handled[vid.ToString("X4") + ":*"] = who; }
+        public static string HandledBy(ushort vid, ushort pid)
+        {
+            string w;
+            if (handled.TryGetValue(vid.ToString("X4") + ":" + pid.ToString("X4"), out w)) return w;
+            if (handled.TryGetValue(vid.ToString("X4") + ":*", out w)) return w;
+            return null;
+        }
         public static bool Demo;
 
         public List<Reading> PollAll(bool forceHidpp)
@@ -490,19 +520,26 @@ namespace BatteryBar
                 Log = "demo mode";
                 return all;
             }
+            handled.Clear();
+            Notes.Length = 0;
+            Native.ResetHid();
             var log = new StringBuilder();
             log.AppendLine("Battery Bar " + Program.Version + " on " + Environment.OSVersion.VersionString + " at " + DateTime.Now);
-            Run("Logitech G HUB", ghub.Poll, all, log);
+            if (Run("Logitech G HUB", ghub.Poll, all, log).Count > 0) MarkVendor(0x046D, "Logitech G HUB");
             log.AppendLine("  G HUB: " + ghub.Note);
-            if (!ghub.Available || forceHidpp) Run("Logitech direct", hidpp.Poll, all, log);
+            if (!ghub.Available || forceHidpp) { if (Run("Logitech direct", hidpp.Poll, all, log).Count > 0) MarkVendor(0x046D, "Logitech direct"); }
             else log.AppendLine("Logitech direct: skipped (G HUB is running)");
             Run("Razer", razer.Poll, all, log);
+            Run("SteelSeries", steel.Poll, all, log);
+            Run("HyperX", hyperx.Poll, all, log);
+            Run("Generic HID battery", generic.Poll, all, log);
             Run("Windows / Bluetooth", windows.Poll, all, log);
+            try { DongleReport.Write(log); } catch (Exception e) { log.AppendLine("dongle report: error " + e.Message); }
             Log = log.ToString();
             return all;
         }
 
-        static void Run(string name, Action<List<Reading>> poll, List<Reading> all, StringBuilder log)
+        static List<Reading> Run(string name, Action<List<Reading>> poll, List<Reading> all, StringBuilder log)
         {
             var list = new List<Reading>();
             var sw = Stopwatch.StartNew();
@@ -511,7 +548,9 @@ namespace BatteryBar
             log.AppendLine(name + ": " + list.Count + " device(s), " + sw.ElapsedMilliseconds + " ms");
             foreach (var r in list)
                 log.AppendLine("  " + r.Name + " [" + r.Kind + "] " + r.Pct + "%" + (r.Charging ? " charging" : "") + "  (" + r.Key + ")");
+            if (Notes.Length > 0) { log.Append(Notes.ToString()); Notes.Length = 0; }
             all.AddRange(list);
+            return list;
         }
     }
 }

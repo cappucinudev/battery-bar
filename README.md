@@ -30,10 +30,13 @@ Click the numbers on the taskbar (or open Battery Bar from the Start menu) to op
 | Logitech (no G HUB) | Directly over HID++ 2.0: Lightspeed and Unifying receivers, Bolt, USB and Bluetooth mice and keyboards |
 | Razer mice and keyboards | Directly over Razer's USB protocol (Synapse not needed) |
 | Razer HyperSpeed headsets | BlackShark V2 Pro and others using the same dongle protocol |
+| SteelSeries headsets (dongle) | Arctis 7 / 7P / 7X / 9 / Pro (2019), Arctis Nova 7 family, Nova Pro Wireless |
+| HyperX headsets (dongle) | Cloud Flight, Cloud Alpha Wireless, Cloud II Wireless |
+| Any other dongle that reports battery the standard HID way | Read automatically (HID Battery Strength / Battery System usages) |
 | Any Bluetooth device | Whatever Windows shows in Settings → Bluetooth & devices (headphones, earbuds, mice, keyboards, controllers) |
 
 Not shown? Open the panel → gear → **Copy diagnostics** and paste it into an [issue](https://github.com/cappucinudev/battery-bar/issues).
-SteelSeries, Corsair and HyperX dongles are not supported yet.
+The diagnostics list every connected USB receiver/dongle with its IDs, so a missing one can be added. Corsair and SteelSeries mice are not supported yet.
 
 Devices that nap (most mice sleep after a few idle minutes) keep their last value for 30 minutes.
 
