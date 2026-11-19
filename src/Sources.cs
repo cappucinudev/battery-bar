@@ -492,6 +492,8 @@ namespace BatteryBar
         readonly WindowsSource windows = new WindowsSource();
         readonly SteelSeriesSource steel = new SteelSeriesSource();
         readonly HyperXSource hyperx = new HyperXSource();
+        readonly MchoseSource mchose = new MchoseSource();
+        readonly AtkSource atk = new AtkSource();
         readonly GenericHidSource generic = new GenericHidSource();
         public string Log = "";
 
@@ -532,6 +534,8 @@ namespace BatteryBar
             Run("Razer", razer.Poll, all, log);
             Run("SteelSeries", steel.Poll, all, log);
             Run("HyperX", hyperx.Poll, all, log);
+            Run("MCHOSE", mchose.Poll, all, log);
+            Run("ATK/VXE", atk.Poll, all, log);
             Run("Generic HID battery", generic.Poll, all, log);
             Run("Windows / Bluetooth", windows.Poll, all, log);
             try { DongleReport.Write(log); } catch (Exception e) { log.AppendLine("dongle report: error " + e.Message); }

@@ -288,6 +288,145 @@ namespace BatteryBar
         }
     }
 
+    // ---------------- MCHOSE mice (A7 V2 family, L7 Pro) ----------------
+    // Protocol of MCHOSE's own M HUB WebHID driver, as reverse-engineered and verified on an A7 V2 Ultra+
+    // on its 2.4G receiver by the OpenMouse project: npm @openmouse/protocol (dist/mchose/index.js,
+    // dist/drivers/mchose/hid.js), https://github.com/OpenMouse-Project/openmouse ; also
+    // https://github.com/alexfrih/mchose-linux (L7 Pro). Vendor collection 0xFF01/0x0001, feature report 0x11:
+    // command 0x06 = "get mouse identity + battery". Every byte of the command and the reply is bit-inverted.
+    // Reply payload (after un-inverting): [0..1] vid, [2..3] mouse pid, [8] flags, [9] battery %, [10] charging.
+    // Receivers: 3837:100B (2.4G), 3837:100A (Bluetooth dongle id), 5253:1020 (8K receiver). Wired mice 3837:4018/4019/4021/4023,
+    // 5253:1011. The MagDock (1012) and A7 V3 ids use other protocols and are left out. UNTESTED on real hardware here.
+    class MchoseSource
+    {
+        static readonly ushort[] Skip = { 0x1012, 0x1014, 0x1018, 0x4030, 0x4031, 0x4032, 0x4033 };
+
+        static string ModelName(int pid)
+        {
+            switch (pid)
+            {
+                case 0x4018: return "A7 V2 Pro";
+                case 0x4023: return "A7 V2 Pro+";
+                case 0x4019: return "A7 V2 Ultra";
+                case 0x4021: return "A7 V2 Ultra+";
+                case 0x1011: return "A7 Ultra";
+                case 0x00B0: return "L7 Pro";
+                case 0x4015: return "L7 Pro+";
+            }
+            return null;
+        }
+
+        static bool Wanted(ushort vid, ushort pid)
+        {
+            if (vid == 0x3837) return Array.IndexOf(Skip, pid) < 0;
+            return vid == 0x5253 && (pid == 0x1020 || pid == 0x1011);
+        }
+
+        public void Poll(List<Reading> outList)
+        {
+            var devs = Native.HidDevices(v => v == 0x3837 || v == 0x5253);
+            if (devs.Count == 0) return;
+            foreach (var kv in HidIo.ByPid(devs))
+            {
+                var l = kv.Value;
+                if (!Wanted(l[0].Vid, l[0].Pid)) continue;
+                Native.HidDev dev = null;
+                foreach (var d in l) if (d.UsagePage == 0xFF01 && d.Usage == 0x0001 && d.FeatLen >= 21) { dev = d; break; }
+                if (dev == null) continue;
+                Poller.Mark(dev.Vid, dev.Pid, "MCHOSE");
+                byte[] p = Query(dev);
+                string id = dev.Vid.ToString("X4") + ":" + dev.Pid.ToString("X4");
+                if (p == null) { Poller.Notes.AppendLine("  MCHOSE " + id + ": no answer (mouse asleep or off)"); continue; }
+                int mousePid = p[2] | (p[3] << 8);
+                string model = ModelName(mousePid) ?? ModelName(dev.Pid);
+                string prod = HidIo.FirstProduct(l);
+                var r = new Reading();
+                r.Pct = p[9];
+                r.Charging = p[10] != 0;
+                r.Name = !string.IsNullOrEmpty(prod) && prod.ToLowerInvariant().Contains("mchose") ? prod : (model != null ? "MCHOSE " + model : "MCHOSE mouse");
+                r.Key = "mchose:" + dev.Pid.ToString("X4");
+                r.Kind = "mouse";
+                r.Source = "MCHOSE";
+                outList.Add(r);
+            }
+        }
+
+        // Send command 0x06 (inverted) on feature report 0x11 and read it back; needs two equal answers.
+        static byte[] Query(Native.HidDev d)
+        {
+            using (var h = Native.Open(d.Path, Native.ReadWrite, false))
+            {
+                if (h.IsInvalid) return null;
+                int len = Math.Max((int)d.FeatLen, 65);
+                var req = new byte[len];
+                req[0] = 0x11;
+                req[1] = 0xF9; // ~0x06
+                for (int i = 2; i <= 20; i++) req[i] = 0xFF; // 19 argument bytes of 0, inverted
+                byte[] prev = null;
+                var sw = Stopwatch.StartNew();
+                for (int k = 0; k < 6 && sw.ElapsedMilliseconds < 800; k++)
+                {
+                    if (!Native.HidD_SetFeature(h, req, len)) return null;
+                    System.Threading.Thread.Sleep(90);
+                    var r = new byte[len];
+                    r[0] = 0x11;
+                    if (!Native.HidD_GetFeature(h, r, len)) return null;
+                    if ((byte)~r[1] != 0x06) continue;
+                    var p = new byte[11];
+                    bool any = false;
+                    for (int i = 0; i < 11; i++) { p[i] = (byte)~r[i + 2]; if (p[i] != 0) any = true; }
+                    if (!any || p[9] > 100) continue;
+                    if (prev != null && Same(prev, p)) return p;
+                    prev = p;
+                }
+            }
+            return null;
+        }
+
+        static bool Same(byte[] a, byte[] b) { for (int i = 0; i < a.Length; i++) if (a[i] != b[i]) return false; return true; }
+    }
+
+    // ---------------- ATK / VXE / Compx mice ----------------
+    // Command 0x04 "get battery" of the ATK HUB protocol: 16-byte frame on output report 0x08
+    // [cmd, status, addr(2), len, data(10), checksum], checksum = 0x55 - (0x08 + sum of the bytes before it).
+    // Sources: https://github.com/dkbednarczyk/madr (madr-lib/src/battery.rs, VXE MAD R, 373B:103F wired / 373B:1040 dongle),
+    // https://github.com/cyberphantom52/libatk-rs (GetBatteryLevel = command 4, VXE R1 Pro), and npm @openmouse/protocol
+    // dist/drivers/atk/hid.js (collection 0xFF02/0x0002 on VID 373B, and on VID 3554 PIDs F58A/F58C/F58E/F58F).
+    // Reply (report id kept at [0]): [0]=08 [1]=04 [6]=battery % [7]=charging [8..9]=millivolts. UNTESTED here.
+    class AtkSource
+    {
+        static readonly ushort[] CompxPids = { 0xF58A, 0xF58C, 0xF58E, 0xF58F };
+
+        public void Poll(List<Reading> outList)
+        {
+            var devs = Native.HidDevices(v => v == 0x373B || v == 0x3554);
+            if (devs.Count == 0) return;
+            foreach (var kv in HidIo.ByPid(devs))
+            {
+                var l = kv.Value;
+                ushort vid = l[0].Vid, pid = l[0].Pid;
+                if (vid == 0x3554 && Array.IndexOf(CompxPids, pid) < 0) continue;
+                var cands = HidIo.Candidates(l, 0xFF02, 0x0002, -1);
+                if (cands.Count == 0) continue;
+                Poller.Mark(vid, pid, "ATK/VXE");
+                var req = new byte[17];
+                req[0] = 0x08; req[1] = 0x04; req[16] = 0x49; // 0x55 - (0x08 + 0x04)
+                byte[] x = HidIo.Xfer(cands[0], req, 500, a => a.Length >= 10 && a[0] == 0x08 && a[1] == 0x04);
+                string id = vid.ToString("X4") + ":" + pid.ToString("X4");
+                if (x == null || x[6] > 100 || (x[6] == 0 && x[8] == 0 && x[9] == 0)) { Poller.Notes.AppendLine("  ATK/VXE " + id + ": no battery answer (mouse asleep or off)"); continue; }
+                string prod = HidIo.FirstProduct(l);
+                var r = new Reading();
+                r.Pct = x[6];
+                r.Charging = x[7] == 1;
+                r.Name = string.IsNullOrEmpty(prod) ? "ATK/VXE mouse" : prod;
+                r.Key = "atk:" + pid.ToString("X4");
+                r.Kind = "mouse";
+                r.Source = "ATK/VXE";
+                outList.Add(r);
+            }
+        }
+    }
+
     // ---------------- Any USB HID device that reports a battery usage ----------------
     // Generic Device Controls 0x06/0x20 (Battery Strength), Battery System 0x85/0x65 (AbsoluteStateOfCharge)
     // and 0x85/0x66 (RemainingCapacity), with 0x85/0x44 (Charging) and 0x85/0x45 (Discharging) when present.

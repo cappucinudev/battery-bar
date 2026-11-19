@@ -30,6 +30,8 @@ Click the numbers on the taskbar (or open Battery Bar from the Start menu) to op
 | Logitech (no G HUB) | Directly over HID++ 2.0: Lightspeed and Unifying receivers, Bolt, USB and Bluetooth mice and keyboards |
 | Razer mice and keyboards | Directly over Razer's USB protocol (Synapse not needed) |
 | Razer HyperSpeed headsets | BlackShark V2 Pro and others using the same dongle protocol |
+| MCHOSE mice (dongle) | A7 V2 family (Pro, Ultra, Ultra+, Pro+) on 2.4G or 8K receiver |
+| VXE / ATK / Compx mice (dongle) | VXE R1 / MAD R and other ATK HUB mice |
 | SteelSeries headsets (dongle) | Arctis 7 / 7P / 7X / 9 / Pro (2019), Arctis Nova 7 family, Nova Pro Wireless |
 | HyperX headsets (dongle) | Cloud Flight, Cloud Alpha Wireless, Cloud II Wireless |
 | Any other dongle that reports battery the standard HID way | Read automatically (HID Battery Strength / Battery System usages) |
